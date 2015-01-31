@@ -12,6 +12,7 @@ function Echo:init(collider, x, y, velocity, radius)
 	self.radius   = radius   or    .01 -- nonzero so a circle:draw() doesn't bork
 
 	self.collider_shape = collider:addCircle(self.x, self.y, self.radius)
+	collider:addToGroup('echoes', self.collider_shape)
 
 	self.color = {100,100,255}
 end
@@ -35,6 +36,14 @@ function Echo:draw()
         love.graphics.setColor(unpack(self.color))
         self.collider_shape:draw()
     love.graphics.setColor(r,g,b,a)
+end
+
+function Echo:on_collision(...)
+
+end
+
+function Echo:on_stop_collision(...)
+
 end
 
 return Echo

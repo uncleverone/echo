@@ -37,9 +37,10 @@ if common_local ~= common then
 	common_local, common = common, common_local
 end
 
-local newPolygonShape = Shapes.newPolygonShape
-local newCircleShape  = Shapes.newCircleShape
-local newPointShape   = Shapes.newPointShape
+local newPolygonShape  = Shapes.newPolygonShape
+local newCircleShape   = Shapes.newCircleShape
+local newPointShape    = Shapes.newPointShape
+local newPolylineShape = Shapes.newPolylineShape
 
 local function __NULL__() end
 
@@ -92,6 +93,7 @@ function HC:addShape(shape)
 		"Cannot add custom shape: Incompatible shape.")
 
 	self._active_shapes[shape] = shape
+
 	self._hash:insert(shape, shape:bbox())
 	shape._groups = {}
 
@@ -135,6 +137,10 @@ end
 
 function HC:addPolygon(...)
 	return self:addShape(newPolygonShape(...))
+end
+
+function HC:addPolyline(...)
+	return self:addShape(newPolylineShape(...))
 end
 
 function HC:addRectangle(x,y,w,h)

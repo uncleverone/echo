@@ -33,6 +33,7 @@ if not (type(common) == 'table' and common.class and common.instance) then
 end
 local vector  = require(_PACKAGE .. '.vector-light')
 local Polygon = require(_PACKAGE .. '.polygon')
+local Polyline= require(_PACKAGE .. '.polyline')
 local GJK     = require(_PACKAGE .. '.gjk') -- actual collision detection
 
 -- reset global table `common' (required by class commons)
@@ -99,6 +100,12 @@ function PointShape:init(x,y)
 	self._pos = {x = x, y = y}
 end
 
+local PolylineShape = {}
+function PolylineShape:init(polyline)
+	Shape.init(self,'polyline')
+	self._polyline = polyline
+end
+
 --
 -- collision functions
 --
@@ -118,6 +125,7 @@ function CircleShape:support(dx,dy)
 	return vector.add(self._center.x, self._center.y,
 		vector.mul(self._radius, vector.normalize(dx,dy)))
 end
+
 
 -- collision dispatching:
 -- let circle shape or compund shape handle the collision
@@ -170,6 +178,47 @@ function CircleShape:collidesWith(other)
 		return false
 	elseif other._type == 'polygon' then
 		return GJK(self, other)
+	elseif other._type == 'polyline' then
+		
+		local vertices = other._polyline.vertices
+		local min_dist = math.huge
+		local sx,sy    = math.huge, math.huge
+		
+		local collides = false
+		for i = 1,#other._polyline.vertices - 1 do
+			local p = vertices[i]
+			local q = vertices[i+1]
+
+			if self:contains(p.x,p.y) and self:contains(q.x,q.y) then
+				local v1x,v1y = self._center.x - p.x, self._center.y - p.y
+				local v2x,v2y = self._center.x - q.x, self._center.y - q.y
+				local d1 = vector.len2(v1x,v1y)
+				local d2 = vector.len2(v2x,v2y)
+				if d1 < d2 and d1 < min_dist then
+					min_dist = d1
+					sx,sy = vector.mul(self._radius - math_sqrt(d1), vector.normalize(v1x,v1y))
+				elseif d2 <= d1 and d2 < min_dist then
+					min_dist = d2
+					sx,sy = vector.mul(self._radius - math_sqrt(d2), vector.normalize(v2x,v2y))
+				end
+			end
+
+			local len   = vector.len(q.x - p.x, q.y-p.y)
+			local dx,dy = vector.div(len, q.x-p.x,q.y-p.y)
+
+			local ray_hit, t = self:intersectsRay(p.x,p.y, dx,dy)
+			
+			if ray_hit and t <= len and t >= 0 then
+				hx,hy = p.x + t*dx, p.y + t*dy
+				hx,hy = self._center.x - hx, self._center.y - hy
+				local d = vector.len2(hx, hy)
+				if d <= min_dist then
+					min_dist = d
+					sx,sy = vector.mul(self._radius - math_sqrt(d), vector.normalize(hx,hy))
+				end
+			end
+		end
+		return min_dist ~= math.huge, sx, sy
 	end
 
 	-- else: let the other shape decide
@@ -183,6 +232,21 @@ function PointShape:collidesWith(other)
 		return (self._pos == other._pos), 0,0
 	end
 	return other:contains(self._pos.x, self._pos.y), 0,0
+end
+
+function PolylineShape:collidesWith(other)
+	if self == other then return false end
+	if other._type ~= 'polyline' then
+		local collide, sx,sy = other:collidesWith(self)
+		return collide, sx and -sx, sy and -sy
+	end
+
+	local collides = false
+	for i = 1,#other._polyline.vertices - 1 do
+		local segment_collided, t = self._polyline:intersectsSegment(other._polyline.vertices[i],other._polyline.vertices[i+1])
+		collides = collides or segment_collided
+	end
+	return collides, 0,0
 end
 
 --
@@ -204,9 +268,16 @@ function PointShape:contains(x,y)
 	return x == self._pos.x and y == self._pos.y
 end
 
+function PolylineShape:contains(x,y)
+	return self._polyline:contains(x,y)
+end
 
 function ConcavePolygonShape:intersectsRay(x,y, dx,dy)
 	return self._polygon:intersectsRay(x,y, dx,dy)
+end
+
+function PolylineShape:intersectsRay(x,y, dx,dy)
+	return self._polyline:intersectsRay(x,y, dx,dy)
 end
 
 function ConvexPolygonShape:intersectsRay(x,y, dx,dy)
@@ -265,11 +336,19 @@ function PointShape:intersectionsWithRay(x,y, dx,dy)
 	return intersects and {t} or {}
 end
 
+function PolylineShape:intersectionsWithRay(x,y, dx,dy)
+	return self._polyline:intersectionsWithRay(x,y, dx,dy)
+end
+
 --
 -- auxiliary
 --
 function ConvexPolygonShape:center()
 	return self._polygon.centroid.x, self._polygon.centroid.y
+end
+
+function PolylineShape:center()
+	return self._polyline.centroid.x, self._polyline.centroid.y
 end
 
 function ConcavePolygonShape:center()
@@ -287,6 +366,11 @@ end
 function ConvexPolygonShape:outcircle()
 	local cx,cy = self:center()
 	return cx,cy, self._polygon._radius
+end
+
+function PolylineShape:outcircle()
+	local cx,cy = self:center()
+	return cx,cy, self._polyline._radius
 end
 
 function ConcavePolygonShape:outcircle()
@@ -307,6 +391,10 @@ function ConvexPolygonShape:bbox()
 	return self._polygon:bbox()
 end
 
+function PolylineShape:bbox()
+	return self._polyline:bbox()
+end
+
 function ConcavePolygonShape:bbox()
 	return self._polygon:bbox()
 end
@@ -325,6 +413,10 @@ end
 
 function ConvexPolygonShape:move(x,y)
 	self._polygon:move(x,y)
+end
+
+function PolylineShape:move(x,y)
+	self._polyline:move(x,y)
 end
 
 function ConcavePolygonShape:move(x,y)
@@ -351,6 +443,17 @@ function ConcavePolygonShape:rotate(angle,cx,cy)
 		cx,cy = self:center()
 	end
 	self._polygon:rotate(angle,cx,cy)
+	for _,p in ipairs(self._shapes) do
+		p:rotate(angle, cx,cy)
+	end
+end
+
+function PolylineShape:rotate(angle,cx,cy)
+	Shape.rotate(self, angle)
+	if not (cx and cy) then
+		cx,cy = self:center()
+	end
+	self._polyline:rotate(angle,cx,cy)
 	for _,p in ipairs(self._shapes) do
 		p:rotate(angle, cx,cy)
 	end
@@ -385,6 +488,16 @@ function ConcavePolygonShape:scale(s)
 	end
 end
 
+function PolylineShape:scale(s)
+	assert(type(s) == "number" and s > 0, "Invalid argument. Scale must be greater than 0")
+	local cx,cy = self:center()
+	self._polyline:scale(s, cx,cy)
+	for _, p in ipairs(self._shapes) do
+		local dx,dy = vector.sub(cx,cy, p:center())
+		p:scale(s)
+		p:moveTo(cx-dx*s, cy-dy*s)
+	end
+end
 function ConvexPolygonShape:scale(s)
 	assert(type(s) == "number" and s > 0, "Invalid argument. Scale must be greater than 0")
 	self._polygon:scale(s, self:center())
@@ -403,6 +516,10 @@ end
 function ConvexPolygonShape:draw(mode)
 	mode = mode or 'line'
 	love.graphics.polygon(mode, self._polygon:unpack())
+end
+
+function PolylineShape:draw(mode)
+	love.graphics.line(self._polyline:unpack())
 end
 
 function ConcavePolygonShape:draw(mode, wireframe)
@@ -427,6 +544,7 @@ end
 
 Shape = common_local.class('Shape', Shape)
 ConvexPolygonShape  = common_local.class('ConvexPolygonShape',  ConvexPolygonShape,  Shape)
+PolylineShape       = common_local.class('PolylineShape',		PolylineShape,       Shape)
 ConcavePolygonShape = common_local.class('ConcavePolygonShape', ConcavePolygonShape, Shape)
 CircleShape         = common_local.class('CircleShape',         CircleShape,         Shape)
 PointShape          = common_local.class('PointShape',          PointShape,          Shape)
@@ -450,6 +568,17 @@ local function newCircleShape(...)
 	return common_local.instance(CircleShape, ...)
 end
 
+local function newPolylineShape(polyline, ...)
+	print(polyline, ...)
+	if type(polyline) == "number" then
+		polyline = common_local.instance(Polyline, polyline, ...)
+	else
+		polyline = polyline:clone()
+	end
+
+	return common_local.instance(PolylineShape, polyline)
+end
+
 local function newPointShape(...)
 	return common_local.instance(PointShape, ...)
 end
@@ -459,7 +588,9 @@ return {
 	ConvexPolygonShape  = ConvexPolygonShape,
 	CircleShape         = CircleShape,
 	PointShape          = PointShape,
+	PolylineShape       = PolylineShape,
 	newPolygonShape     = newPolygonShape,
+	newPolylineShape    = newPolylineShape,
 	newCircleShape      = newCircleShape,
 	newPointShape       = newPointShape,
 }
